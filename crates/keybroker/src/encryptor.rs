@@ -15,7 +15,14 @@ use aws_lc_rs::{
 use byteorder::ReadBytesExt;
 use prost::Message;
 
-use crate::Secret;
+use crate::{
+    key_derivation::{
+        DerivedKey,
+        KeyPurpose,
+        DERIVED_KEY_LEN,
+    },
+    Secret,
+};
 
 const AEAD_ALGORITHM: aead::Algorithm = aead::AES_128_GCM_SIV;
 const KEY_LEN: usize = 16;
@@ -215,4 +222,214 @@ fn test_deterministic_encryptor() {
             .unwrap_err(),
         "Failed to decrypt",
     );
+}
+
+// =============================================================================
+// HKDF-based FunrunEncryptor (RFC-0006)
+// =============================================================================
+
+/// AES-256-GCM algorithm for the new HKDF-based encryptor
+const FUNRUN_AEAD_ALGORITHM: aead::Algorithm = aead::AES_256_GCM;
+const FUNRUN_NONCE_LEN: usize = 12;
+
+#[test]
+fn test_funrun_key_len() {
+    assert_eq!(DERIVED_KEY_LEN, FUNRUN_AEAD_ALGORITHM.key_len());
+}
+
+/// Encryptor for function runner using HKDF-derived keys
+///
+/// This encryptor uses:
+/// - AES-256-GCM for encryption
+/// - HKDF-derived keys for purpose-specific encryption
+/// - Random nonces for each encryption
+///
+/// It follows the principle of least privilege by only having access
+/// to the derived key for its specific purpose, not the full instance secret.
+pub struct FunrunEncryptor {
+    derived_key: DerivedKey,
+}
+
+impl FunrunEncryptor {
+    /// Create a new FunrunEncryptor with a derived key
+    ///
+    /// # Panics
+    ///
+    /// Panics if the derived key's purpose is not `FunrunDataEncryption`.
+    pub fn new(derived_key: DerivedKey) -> Self {
+        assert_eq!(
+            derived_key.purpose(),
+            KeyPurpose::FunrunDataEncryption,
+            "Wrong key purpose for FunrunEncryptor: expected FunrunDataEncryption, got {:?}",
+            derived_key.purpose()
+        );
+        Self { derived_key }
+    }
+
+    /// Create a FunrunEncryptor from raw key bytes
+    ///
+    /// This is useful when receiving a derived key over the wire.
+    pub fn from_key_bytes(key: [u8; DERIVED_KEY_LEN]) -> Self {
+        Self {
+            derived_key: DerivedKey::from_bytes(key, KeyPurpose::FunrunDataEncryption),
+        }
+    }
+
+    /// Get the derived key bytes for serialization
+    pub fn key_bytes(&self) -> &[u8; DERIVED_KEY_LEN] {
+        self.derived_key.as_bytes()
+    }
+
+    fn aead_key(&self) -> aead::LessSafeKey {
+        aead::LessSafeKey::new(
+            aead::UnboundKey::new(&FUNRUN_AEAD_ALGORITHM, self.derived_key.as_bytes())
+                .expect("DERIVED_KEY_LEN == AES_256_GCM.key_len()"),
+        )
+    }
+
+    /// Encrypt plaintext data
+    ///
+    /// Returns ciphertext with prepended nonce: `[nonce (12 bytes)][ciphertext][tag]`
+    pub fn encrypt(&self, plaintext: &[u8]) -> anyhow::Result<Vec<u8>> {
+        // Generate random nonce
+        let mut nonce_bytes = [0u8; FUNRUN_NONCE_LEN];
+        SystemRandom::new()
+            .fill(&mut nonce_bytes)
+            .map_err(|_| anyhow::anyhow!("Failed to generate random nonce"))?;
+
+        let nonce = aead::Nonce::assume_unique_for_key(nonce_bytes);
+
+        // Encrypt
+        let mut buffer = plaintext.to_vec();
+        let tag = self
+            .aead_key()
+            .seal_in_place_separate_tag(nonce, aead::Aad::empty(), &mut buffer)
+            .map_err(|_| anyhow::anyhow!("Encryption failed"))?;
+
+        // Prepend nonce to ciphertext
+        let mut result = Vec::with_capacity(FUNRUN_NONCE_LEN + buffer.len() + tag.as_ref().len());
+        result.extend_from_slice(&nonce_bytes);
+        result.extend_from_slice(&buffer);
+        result.extend_from_slice(tag.as_ref());
+
+        Ok(result)
+    }
+
+    /// Decrypt ciphertext data
+    ///
+    /// Expects format: `[nonce (12 bytes)][ciphertext][tag]`
+    pub fn decrypt(&self, ciphertext: &[u8]) -> anyhow::Result<Vec<u8>> {
+        if ciphertext.len() < FUNRUN_NONCE_LEN {
+            anyhow::bail!("Ciphertext too short: expected at least {} bytes", FUNRUN_NONCE_LEN);
+        }
+
+        let (nonce_bytes, encrypted) = ciphertext.split_at(FUNRUN_NONCE_LEN);
+        let nonce = aead::Nonce::assume_unique_for_key(
+            nonce_bytes
+                .try_into()
+                .expect("nonce_bytes should be 12 bytes"),
+        );
+
+        let mut buffer = encrypted.to_vec();
+        let plaintext = self
+            .aead_key()
+            .open_in_place(nonce, aead::Aad::empty(), &mut buffer)
+            .map_err(|_| anyhow::anyhow!("Decryption failed"))?;
+
+        Ok(plaintext.to_vec())
+    }
+}
+
+impl Clone for FunrunEncryptor {
+    fn clone(&self) -> Self {
+        Self {
+            derived_key: self.derived_key.clone(),
+        }
+    }
+}
+
+#[test]
+fn test_funrun_encryptor() {
+    let secret = Secret::random();
+    let derived_key = DerivedKey::derive(&secret, KeyPurpose::FunrunDataEncryption);
+    let encryptor = FunrunEncryptor::new(derived_key);
+
+    let plaintext = b"test message for funrun encryption";
+    let ciphertext = encryptor.encrypt(plaintext).unwrap();
+
+    // Ciphertext should be longer than plaintext (nonce + tag)
+    assert!(ciphertext.len() > plaintext.len());
+
+    // Decrypt should recover plaintext
+    let decrypted = encryptor.decrypt(&ciphertext).unwrap();
+    assert_eq!(decrypted, plaintext);
+
+    // Random encryptor produces different ciphertext each time
+    let ciphertext2 = encryptor.encrypt(plaintext).unwrap();
+    assert_ne!(ciphertext, ciphertext2);
+
+    // But both decrypt to the same plaintext
+    let decrypted2 = encryptor.decrypt(&ciphertext2).unwrap();
+    assert_eq!(decrypted2, plaintext);
+}
+
+#[test]
+fn test_funrun_encryptor_from_key_bytes() {
+    let secret = Secret::random();
+    let derived_key = DerivedKey::derive(&secret, KeyPurpose::FunrunDataEncryption);
+    let encryptor1 = FunrunEncryptor::new(derived_key);
+
+    // Create second encryptor from key bytes
+    let encryptor2 = FunrunEncryptor::from_key_bytes(*encryptor1.key_bytes());
+
+    // Both should be able to decrypt each other's ciphertext
+    let plaintext = b"cross-encryptor test";
+    let ciphertext = encryptor1.encrypt(plaintext).unwrap();
+    let decrypted = encryptor2.decrypt(&ciphertext).unwrap();
+    assert_eq!(decrypted, plaintext);
+}
+
+#[test]
+#[should_panic(expected = "Wrong key purpose")]
+fn test_funrun_encryptor_wrong_purpose() {
+    let secret = Secret::random();
+    let derived_key = DerivedKey::derive(&secret, KeyPurpose::TokenSigning);
+    FunrunEncryptor::new(derived_key); // Should panic
+}
+
+#[test]
+fn test_funrun_encryptor_decrypt_invalid_ciphertext() {
+    let secret = Secret::random();
+    let derived_key = DerivedKey::derive(&secret, KeyPurpose::FunrunDataEncryption);
+    let encryptor = FunrunEncryptor::new(derived_key);
+
+    // Too short
+    let result = encryptor.decrypt(&[0u8; 5]);
+    assert!(result.is_err());
+
+    // Invalid ciphertext (wrong tag)
+    let mut ciphertext = encryptor.encrypt(b"test").unwrap();
+    let len = ciphertext.len();
+    ciphertext[len - 1] ^= 0xff; // Corrupt the tag
+    let result = encryptor.decrypt(&ciphertext);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_funrun_encryptor_different_keys_cannot_decrypt() {
+    let secret1 = Secret::random();
+    let secret2 = Secret::random();
+
+    let derived_key1 = DerivedKey::derive(&secret1, KeyPurpose::FunrunDataEncryption);
+    let derived_key2 = DerivedKey::derive(&secret2, KeyPurpose::FunrunDataEncryption);
+
+    let encryptor1 = FunrunEncryptor::new(derived_key1);
+    let encryptor2 = FunrunEncryptor::new(derived_key2);
+
+    let plaintext = b"secret message";
+    let ciphertext = encryptor1.encrypt(plaintext).unwrap();
+
+    // Different key should fail to decrypt
+    let result = encryptor2.decrypt(&ciphertext);
+    assert!(result.is_err());
 }

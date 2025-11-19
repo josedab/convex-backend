@@ -4,8 +4,10 @@
 
 mod broker;
 mod encryptor;
+pub mod key_derivation;
 mod legacy_encryptor;
 mod metrics;
+pub mod rotation;
 mod secret;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
@@ -29,8 +31,17 @@ pub use self::{
         SystemKey,
         UserIdentity,
     },
-    encryptor::Encryptor,
+    encryptor::{
+        Encryptor,
+        FunrunEncryptor,
+    },
+    key_derivation::{
+        DerivedKey,
+        KeyPurpose,
+        DERIVED_KEY_LEN,
+    },
     legacy_encryptor::LegacyEncryptor,
+    rotation::KeyRotation,
     secret::{
         InstanceSecret,
         Secret,

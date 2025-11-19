@@ -99,8 +99,13 @@ use crate::testing::TestUserIdentity;
 use crate::{
     encryptor::{
         DeterministicEncryptor,
+        FunrunEncryptor,
         Purpose,
         RandomEncryptor,
+    },
+    key_derivation::{
+        DerivedKey,
+        KeyPurpose,
     },
     legacy_encryptor::LegacyEncryptor,
     metrics::{
@@ -123,6 +128,7 @@ const MAX_TS_DELAY: Duration = Duration::from_secs(15);
 #[derive(Clone)]
 pub struct KeyBroker {
     instance_name: String,
+    instance_secret: InstanceSecret,
     encryptor: LegacyEncryptor,
     admin_key_encryptor: RandomEncryptor,
     action_callback_encryptor: RandomEncryptor,
@@ -781,6 +787,7 @@ impl KeyBroker {
     pub fn new(instance_name: &str, instance_secret: InstanceSecret) -> anyhow::Result<Self> {
         Ok(Self {
             instance_name: instance_name.to_owned(),
+            instance_secret,
             encryptor: LegacyEncryptor::new(instance_secret)?,
             admin_key_encryptor: RandomEncryptor::derive_from_secret(
                 &instance_secret,
@@ -803,6 +810,25 @@ impl KeyBroker {
                 Purpose::STORE_FILE_AUTHORIZATION,
             )?,
         })
+    }
+
+    /// Derive a key for a specific purpose using HKDF
+    ///
+    /// This method allows creating purpose-specific derived keys that
+    /// can be passed to other components without exposing the full
+    /// instance secret.
+    pub fn derive_key(&self, purpose: KeyPurpose) -> DerivedKey {
+        DerivedKey::derive(&self.instance_secret, purpose)
+    }
+
+    /// Create a FunrunEncryptor with a derived key
+    ///
+    /// The FunrunEncryptor only has access to the derived key for
+    /// FunrunDataEncryption purpose, not the full instance secret.
+    /// This follows the principle of least privilege.
+    pub fn create_funrun_encryptor(&self) -> FunrunEncryptor {
+        let derived_key = self.derive_key(KeyPurpose::FunrunDataEncryption);
+        FunrunEncryptor::new(derived_key)
     }
 
     pub fn dev() -> Self {
