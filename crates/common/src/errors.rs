@@ -771,6 +771,29 @@ pub fn database_timeout_error(db_type: &'static str) -> anyhow::Error {
 pub const AUTH_ERROR: &str = "AuthError";
 pub const TIMEOUT_ERROR_MESSAGE: &str = "Your request timed out.";
 
+/// Format an error with its full context chain for detailed logging
+pub fn format_error_chain(error: &anyhow::Error) -> String {
+    let mut result = format!("Error: {}\n", error);
+
+    // Context chain
+    for (i, cause) in error.chain().skip(1).enumerate() {
+        result.push_str(&format!("  {}: {}\n", i + 1, cause));
+    }
+
+    result
+}
+
+/// Format an error for user display (less technical details)
+pub fn format_user_error(error: &anyhow::Error) -> String {
+    // Just the top-level message
+    error.to_string()
+}
+
+/// Format an error for logging (full detail including context chain)
+pub fn format_log_error(error: &anyhow::Error) -> String {
+    format_error_chain(error)
+}
+
 #[cfg(test)]
 mod tests {
     use cmd_util::env::env_config;
@@ -977,5 +1000,52 @@ mod tests {
         fn frame_data_proto_roundtrips(left in any::<FrameData>()) {
             assert_roundtrips::<FrameData, FrameDataProto>(left);
         }
+    }
+
+    #[test]
+    fn test_format_error_chain() -> anyhow::Result<()> {
+        use crate::errors::{
+            format_error_chain,
+            format_log_error,
+            format_user_error,
+        };
+
+        // Create an error with context chain
+        let error = anyhow::anyhow!("root cause")
+            .context("middle context")
+            .context("top level");
+
+        // Test format_error_chain
+        let chain = format_error_chain(&error);
+        assert!(chain.contains("Error: top level"));
+        assert!(chain.contains("1: middle context"));
+        assert!(chain.contains("2: root cause"));
+
+        // Test format_user_error (should only show top-level)
+        let user_msg = format_user_error(&error);
+        assert_eq!(user_msg, "top level");
+
+        // Test format_log_error (should be same as format_error_chain)
+        let log_msg = format_log_error(&error);
+        assert_eq!(log_msg, chain);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_error_with_metadata() -> anyhow::Result<()> {
+        use crate::errors::format_error_chain;
+
+        // Create an error with ErrorMetadata
+        let error = anyhow::anyhow!("underlying issue").context(ErrorMetadata::bad_request(
+            "ValidationFailed",
+            "The input validation failed",
+        ));
+
+        let chain = format_error_chain(&error);
+        assert!(chain.contains("Error: The input validation failed"));
+        assert!(chain.contains("underlying issue"));
+
+        Ok(())
     }
 }

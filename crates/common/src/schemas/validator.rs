@@ -272,18 +272,19 @@ impl Validator {
                     );
                 }
 
-                // TODO: This is dropping the error messages from the individual
-                // validators. Maybe we should combine them if this fails?
+                // Collect all errors from individual validators to provide better debugging info
+                let mut errors = Vec::new();
                 for t in validators {
-                    if t.check_value_internal(value, all_tables_number_to_name, context.clone())
-                        .is_ok()
+                    match t.check_value_internal(value, all_tables_number_to_name, context.clone())
                     {
-                        return Ok(());
+                        Ok(()) => return Ok(()),
+                        Err(e) => errors.push(e),
                     }
                 }
-                return Err(ValidationError::NoMatch {
+                return Err(ValidationError::UnionNoMatch {
                     value: value.clone(),
                     validator: self.clone(),
+                    errors,
                     context,
                 });
             },
@@ -1003,6 +1004,59 @@ Validator: {validator}"
         validator: Validator,
         context: ValidationContext,
     },
+    #[display("{}", format_union_errors(.value, .validator, .errors, .context))]
+    UnionNoMatch {
+        value: ConvexValue,
+        validator: Validator,
+        errors: Vec<ValidationError>,
+        context: ValidationContext,
+    },
+}
+
+/// Format union validation errors with details about each validator that failed
+fn format_union_errors(
+    value: &ConvexValue,
+    validator: &Validator,
+    errors: &[ValidationError],
+    context: &ValidationContext,
+) -> String {
+    let mut result = format!(
+        "Value does not match any variant of the union validator.\n{}\nValue: {}\nValidator: {}\n\nEach union variant failed for the following reasons:",
+        context, value, validator
+    );
+
+    for (i, error) in errors.iter().enumerate() {
+        result.push_str(&format!("\n  Variant {}: {}", i + 1, format_error_brief(error)));
+    }
+
+    result
+}
+
+/// Format a validation error briefly (for use in union error summaries)
+fn format_error_brief(error: &ValidationError) -> String {
+    match error {
+        ValidationError::TableNamesDoNotMatch { id, found_table_name, validator_table, .. } => {
+            format!("ID \"{}\" is from table `{}`, expected `{}`", id, found_table_name, validator_table)
+        },
+        ValidationError::SystemTableReference { id, validator_table, .. } => {
+            format!("ID \"{}\" is from a system table, expected `{}`", id, validator_table)
+        },
+        ValidationError::LiteralValuesDoNotMatch { value, literal_validator, .. } => {
+            format!("`{}` does not match literal `{}`", value, literal_validator)
+        },
+        ValidationError::MissingRequiredField { field_name, .. } => {
+            format!("missing required field `{}`", field_name)
+        },
+        ValidationError::ExtraField { field_name, .. } => {
+            format!("extra field `{}`", field_name)
+        },
+        ValidationError::NoMatch { value, validator, .. } => {
+            format!("`{}` does not match `{}`", value, validator)
+        },
+        ValidationError::UnionNoMatch { errors, .. } => {
+            format!("none of {} union variants matched", errors.len())
+        },
+    }
 }
 
 #[cfg(test)]
@@ -1745,6 +1799,148 @@ mod tests {
             let Err(e) = nested_union_object_validator.ensure_supported_for_streaming_export()
         );
         assert_eq!(e.short_msg(), "UnsupportedSchemaForExport");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_union_validation_preserves_errors() -> anyhow::Result<()> {
+        // Test that union validation preserves individual error messages
+        let union_validator = Validator::Union(vec![Validator::String, Validator::Float64]);
+
+        // Value that doesn't match any variant
+        let value = ConvexValue::Boolean(true);
+
+        let err = union_validator
+            .check_value(
+                &value,
+                &empty_table_mapping(),
+                &VirtualSystemMapping::default(),
+            )
+            .unwrap_err();
+
+        // Check that we get a UnionNoMatch error with preserved errors
+        match err {
+            ValidationError::UnionNoMatch {
+                ref errors,
+                ref context,
+                ..
+            } => {
+                // Should have 2 errors, one for each union variant
+                assert_eq!(errors.len(), 2);
+                // Context should be preserved
+                assert_eq!(*context, ValidationContext::new());
+            },
+            _ => panic!("Expected UnionNoMatch error, got {:?}", err),
+        }
+
+        // Check that the error message contains useful information
+        let error_string = err.to_string();
+        assert!(error_string.contains("union validator"));
+        assert!(error_string.contains("Variant 1:"));
+        assert!(error_string.contains("Variant 2:"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_union_validation_error_message_format() -> anyhow::Result<()> {
+        // Test the format of union validation error messages
+        let union_validator = Validator::Union(vec![
+            Validator::Literal(LiteralValidator::String("foo".to_string().try_into()?)),
+            Validator::Literal(LiteralValidator::String("bar".to_string().try_into()?)),
+        ]);
+
+        let value = ConvexValue::String("baz".try_into()?);
+
+        let err = union_validator
+            .check_value(
+                &value,
+                &empty_table_mapping(),
+                &VirtualSystemMapping::default(),
+            )
+            .unwrap_err();
+
+        let error_string = err.to_string();
+
+        // Check that we get informative error messages about each variant
+        assert!(error_string.contains("does not match any variant of the union validator"));
+        assert!(error_string.contains("Variant 1:"));
+        assert!(error_string.contains("Variant 2:"));
+        // Should mention the specific literal values that didn't match
+        assert!(error_string.contains("literal"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_nested_union_validation_errors() -> anyhow::Result<()> {
+        // Test union validation with nested objects
+        let union_validator = Validator::Union(vec![
+            Validator::Object(ObjectValidator(btreemap! {
+                "type".parse()? => FieldValidator::required_field_type(
+                    Validator::Literal(LiteralValidator::String("a".to_string().try_into()?))
+                ),
+                "valueA".parse()? => FieldValidator::required_field_type(Validator::String),
+            })),
+            Validator::Object(ObjectValidator(btreemap! {
+                "type".parse()? => FieldValidator::required_field_type(
+                    Validator::Literal(LiteralValidator::String("b".to_string().try_into()?))
+                ),
+                "valueB".parse()? => FieldValidator::required_field_type(Validator::Float64),
+            })),
+        ]);
+
+        // Value that doesn't match either variant
+        let value = ConvexValue::Object(assert_obj!(
+            "type" => "c",
+            "valueC" => 123
+        ));
+
+        let err = union_validator
+            .check_value(
+                &value,
+                &empty_table_mapping(),
+                &VirtualSystemMapping::default(),
+            )
+            .unwrap_err();
+
+        // Check that we get detailed errors for each object variant
+        match err {
+            ValidationError::UnionNoMatch { errors, .. } => {
+                assert_eq!(errors.len(), 2);
+            },
+            _ => panic!("Expected UnionNoMatch error, got {:?}", err),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_single_element_union_delegates_error() -> anyhow::Result<()> {
+        // Test that a union with a single element delegates error directly
+        let union_validator = Validator::Union(vec![Validator::String]);
+
+        let value = ConvexValue::Float64(123.0);
+
+        let err = union_validator
+            .check_value(
+                &value,
+                &empty_table_mapping(),
+                &VirtualSystemMapping::default(),
+            )
+            .unwrap_err();
+
+        // Single-element union should return the underlying error, not UnionNoMatch
+        match err {
+            ValidationError::NoMatch { .. } => {
+                // Expected behavior for single-element union
+            },
+            ValidationError::UnionNoMatch { .. } => {
+                panic!("Single-element union should not return UnionNoMatch");
+            },
+            _ => panic!("Unexpected error type: {:?}", err),
+        }
 
         Ok(())
     }
