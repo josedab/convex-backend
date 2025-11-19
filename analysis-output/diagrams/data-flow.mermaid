@@ -1,0 +1,67 @@
+%% Convex Data Flow Diagrams
+%% Analysis Commit: 482df8a0e1288c9410be8241deb06b09d7ff70b0
+
+%% Query Flow
+graph LR
+    subgraph "Query Execution Flow"
+        Q1[Client Request] --> Q2[Parse & Validate]
+        Q2 --> Q3[Get Snapshot]
+        Q3 --> Q4[Begin Read Transaction]
+        Q4 --> Q5[Execute in Isolate]
+        Q5 --> Q6[Database Reads]
+        Q6 --> Q7[Serialize Result]
+        Q7 --> Q8[Return to Client]
+    end
+
+---
+
+%% Mutation Flow
+graph LR
+    subgraph "Mutation Execution Flow"
+        M1[Client Request] --> M2[Parse & Validate]
+        M2 --> M3[Begin Write Transaction]
+        M3 --> M4[Execute in Isolate]
+        M4 --> M5[Buffer Writes]
+        M5 --> M6[OCC Validation]
+        M6 -->|Conflict| M3
+        M6 -->|Success| M7[Persist Changes]
+        M7 --> M8[Notify Subscriptions]
+        M8 --> M9[Return to Client]
+    end
+
+---
+
+%% Subscription Flow
+graph TB
+    subgraph "Subscription Flow"
+        S1[Subscribe Request] --> S2[Register Subscription]
+        S2 --> S3[Execute Initial Query]
+        S3 --> S4[Send Initial Result]
+        S4 --> S5[Watch for Changes]
+        S5 --> S6{Data Changed?}
+        S6 -->|No| S5
+        S6 -->|Yes| S7[Re-execute Query]
+        S7 --> S8[Compute Delta]
+        S8 --> S9[Send Update]
+        S9 --> S5
+    end
+
+---
+
+%% Transaction Lifecycle
+graph TB
+    subgraph "Transaction Lifecycle"
+        T1[Begin] --> T2[Acquire Snapshot]
+        T2 --> T3[Execute Operations]
+        T3 --> T4[Track Reads]
+        T3 --> T5[Buffer Writes]
+        T4 --> T6[Commit Request]
+        T5 --> T6
+        T6 --> T7{OCC Check}
+        T7 -->|Conflict| T8[Abort & Retry]
+        T7 -->|Valid| T9[Apply Writes]
+        T9 --> T10[Update Indexes]
+        T10 --> T11[Notify Subscribers]
+        T11 --> T12[Complete]
+        T8 --> T1
+    end

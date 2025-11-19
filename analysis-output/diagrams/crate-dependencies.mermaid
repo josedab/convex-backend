@@ -1,0 +1,98 @@
+%% Convex Crate Dependencies
+%% Analysis Commit: 482df8a0e1288c9410be8241deb06b09d7ff70b0
+
+graph TD
+    subgraph "Entry Points"
+        LOCAL[local_backend<br/>10K LOC]
+    end
+
+    subgraph "Application Layer"
+        APP[application<br/>28K LOC]
+        MODEL[model<br/>20K LOC]
+    end
+
+    subgraph "Runtime Layer"
+        RUNTIME[runtime]
+        ISOLATE[isolate<br/>34K LOC]
+    end
+
+    subgraph "Database Layer"
+        DB[database<br/>47K LOC]
+        SEARCH[search<br/>14K LOC]
+        VECTOR[vector<br/>5K LOC]
+        INDEXING[indexing<br/>3K LOC]
+    end
+
+    subgraph "Storage Layer"
+        STORAGE[storage]
+        AWS_S3[aws_s3]
+        POSTGRES[postgres<br/>5K LOC]
+        MYSQL[mysql<br/>5K LOC]
+        SQLITE[sqlite]
+    end
+
+    subgraph "Foundation Layer"
+        COMMON[common<br/>39K LOC]
+        VALUE[value<br/>9K LOC]
+        ERRORS[errors]
+        METRICS[metrics]
+    end
+
+    subgraph "Utilities"
+        AUTH[authentication]
+        KEYBROKER[keybroker]
+        PB[pb]
+        PACKED[packed_value]
+    end
+
+    %% Dependencies
+    LOCAL --> APP
+    LOCAL --> COMMON
+    LOCAL --> DB
+    LOCAL --> ISOLATE
+
+    APP --> DB
+    APP --> MODEL
+    APP --> ISOLATE
+    APP --> SEARCH
+    APP --> VECTOR
+
+    ISOLATE --> COMMON
+    ISOLATE --> VALUE
+    ISOLATE --> RUNTIME
+
+    DB --> COMMON
+    DB --> MODEL
+    DB --> SEARCH
+    DB --> VECTOR
+    DB --> INDEXING
+
+    SEARCH --> COMMON
+    VECTOR --> COMMON
+    INDEXING --> COMMON
+
+    MODEL --> COMMON
+    MODEL --> VALUE
+
+    COMMON --> VALUE
+    COMMON --> ERRORS
+    COMMON --> METRICS
+
+    STORAGE --> COMMON
+    AWS_S3 --> STORAGE
+    POSTGRES --> COMMON
+    MYSQL --> COMMON
+    SQLITE --> COMMON
+
+    APP --> AUTH
+    APP --> KEYBROKER
+    APP --> STORAGE
+
+    %% Styling
+    classDef large fill:#ffcdd2
+    classDef medium fill:#fff9c4
+    classDef small fill:#c8e6c9
+
+    class DB,COMMON,ISOLATE,APP large
+    class MODEL,SEARCH,LOCAL,VALUE medium
+    class VECTOR,POSTGRES,MYSQL,INDEXING small

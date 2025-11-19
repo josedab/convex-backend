@@ -1,0 +1,120 @@
+%% Convex Backend Architecture Overview
+%% Analysis Commit: 482df8a0e1288c9410be8241deb06b09d7ff70b0
+
+graph TB
+    subgraph "Client Layer"
+        WEB[Web Application]
+        MOBILE[Mobile App]
+        NODE[Node.js Server]
+    end
+
+    subgraph "API Layer"
+        direction TB
+        ROUTER[Axum Router<br/>local_backend/router.rs]
+        ROUTER --> QUERY_API[Query Handler]
+        ROUTER --> MUTATION_API[Mutation Handler]
+        ROUTER --> ACTION_API[Action Handler]
+        ROUTER --> WS_API[WebSocket Handler]
+    end
+
+    subgraph "Application Layer"
+        direction TB
+        APP[Application&lt;RT&gt;<br/>application/lib.rs]
+        API_TRAIT[ApplicationApi Trait<br/>application/api.rs]
+        RUNNER[FunctionRunner]
+        WORKERS[Background Workers]
+    end
+
+    subgraph "Execution Layer"
+        direction TB
+        ISOLATE[V8 Isolate<br/>isolate/isolate.rs]
+        SYSCALLS[Syscall Interface<br/>isolate/ops/]
+    end
+
+    subgraph "Database Layer"
+        direction TB
+        DB[Database&lt;RT&gt;<br/>database/database.rs]
+        TX[Transaction<br/>database/transaction.rs]
+        SNAP[SnapshotManager<br/>database/snapshot_manager.rs]
+        COMMIT[Committer<br/>database/committer.rs]
+        SUB[Subscriptions<br/>database/subscription.rs]
+    end
+
+    subgraph "Index Layer"
+        direction TB
+        TEXT_IDX[Text Index<br/>search/]
+        VEC_IDX[Vector Index<br/>vector/]
+        DB_IDX[Database Index<br/>indexing/]
+    end
+
+    subgraph "Persistence Layer"
+        direction TB
+        PERSIST[Persistence Trait<br/>common/persistence.rs]
+        SQLITE[(SQLite)]
+        POSTGRES[(PostgreSQL)]
+        MYSQL[(MySQL)]
+    end
+
+    subgraph "Storage Layer"
+        direction TB
+        STORAGE[Storage Trait<br/>storage/lib.rs]
+        LOCAL_STOR[Local Dir]
+        S3_STOR[AWS S3]
+    end
+
+    %% Client connections
+    WEB --> ROUTER
+    MOBILE --> ROUTER
+    NODE --> ROUTER
+
+    %% API to Application
+    QUERY_API --> API_TRAIT
+    MUTATION_API --> API_TRAIT
+    ACTION_API --> API_TRAIT
+    WS_API --> SUB
+
+    API_TRAIT --> APP
+    APP --> RUNNER
+    APP --> WORKERS
+
+    %% Execution to Database
+    RUNNER --> ISOLATE
+    ISOLATE --> SYSCALLS
+    SYSCALLS --> TX
+
+    %% Database internals
+    TX --> SNAP
+    TX --> COMMIT
+    COMMIT --> SUB
+
+    %% Indexes
+    DB --> TEXT_IDX
+    DB --> VEC_IDX
+    DB --> DB_IDX
+
+    %% Persistence
+    SNAP --> PERSIST
+    COMMIT --> PERSIST
+    PERSIST --> SQLITE
+    PERSIST --> POSTGRES
+    PERSIST --> MYSQL
+
+    %% Storage
+    APP --> STORAGE
+    STORAGE --> LOCAL_STOR
+    STORAGE --> S3_STOR
+
+    %% Styling
+    classDef client fill:#e1f5fe
+    classDef api fill:#fff3e0
+    classDef app fill:#f3e5f5
+    classDef exec fill:#e8f5e9
+    classDef db fill:#fce4ec
+    classDef persist fill:#f5f5f5
+
+    class WEB,MOBILE,NODE client
+    class ROUTER,QUERY_API,MUTATION_API,ACTION_API,WS_API api
+    class APP,API_TRAIT,RUNNER,WORKERS app
+    class ISOLATE,SYSCALLS exec
+    class DB,TX,SNAP,COMMIT,SUB,TEXT_IDX,VEC_IDX,DB_IDX db
+    class PERSIST,SQLITE,POSTGRES,MYSQL,STORAGE,LOCAL_STOR,S3_STOR persist
