@@ -204,8 +204,7 @@ impl FunctionExecution {
                 let udf_id = self.params.identifier_str();
                 let component_path = match &self.params {
                     UdfParams::Function { identifier, .. } => identifier.component.clone(),
-                    // TODO(ENG-7612): Support HTTP actions in components.
-                    UdfParams::Http { .. } => ComponentPath::root(),
+                    UdfParams::Http { component_path, .. } => component_path.clone(),
                 };
                 (component_path, udf_id)
             },
@@ -404,6 +403,8 @@ pub enum UdfParams {
     Http {
         result: Result<HttpActionStatusCode, JsError>,
         identifier: HttpActionRoute,
+        /// Component path where the HTTP action was executed
+        component_path: ComponentPath,
     },
 }
 
@@ -411,7 +412,11 @@ impl HeapSize for UdfParams {
     fn heap_size(&self) -> usize {
         match self {
             UdfParams::Function { error, identifier } => error.heap_size() + identifier.heap_size(),
-            UdfParams::Http { result, identifier } => result.heap_size() + identifier.heap_size(),
+            UdfParams::Http {
+                result,
+                identifier,
+                component_path,
+            } => result.heap_size() + identifier.heap_size() + component_path.heap_size(),
         }
     }
 }
@@ -1055,6 +1060,9 @@ impl<RT: Runtime> FunctionExecutionLog<RT> {
             params: UdfParams::Http {
                 result,
                 identifier: outcome.route.clone(),
+                // TODO(ENG-7612): Thread component_path through HttpActionOutcome
+                // to properly support HTTP actions in child components
+                component_path: ComponentPath::root(),
             },
             unix_timestamp: self.rt.unix_timestamp(),
             execution_timestamp: outcome.unix_timestamp,
@@ -1086,10 +1094,10 @@ impl<RT: Runtime> FunctionExecutionLog<RT> {
         context: ExecutionContext,
         log_lines: LogLines,
         module_environment: ModuleEnvironment,
+        component_path: ComponentPath,
     ) {
         let event_source = FunctionEventSource {
-            // TODO(ENG-7612): Support HTTP actions in components.
-            component_path: ComponentPath::root(),
+            component_path,
             udf_path: identifier.to_string(),
             udf_type: UdfType::HttpAction,
             module_environment,

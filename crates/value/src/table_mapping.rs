@@ -50,6 +50,9 @@ impl TableNamespace {
     /// Namespace that should be replaced with RootComponent or ByComponent,
     /// but for now uses Global. For easy searching.
     #[allow(non_snake_case)]
+    #[deprecated(
+        note = "Use TableNamespace::root_component() or TableNamespace::from(component_id) instead"
+    )]
     pub const fn by_component_TODO() -> Self {
         Self::Global
     }

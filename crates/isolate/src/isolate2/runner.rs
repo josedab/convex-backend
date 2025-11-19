@@ -244,6 +244,9 @@ struct UdfEnvironment<RT: Runtime> {
 
     #[allow(unused)]
     env_vars: PreloadedEnvironmentVariables,
+
+    /// The component in which this UDF is executing
+    component_id: ComponentId,
 }
 
 impl<RT: Runtime> UdfEnvironment<RT> {
@@ -255,6 +258,7 @@ impl<RT: Runtime> UdfEnvironment<RT> {
         shared: UdfShared<RT>,
         env_vars: PreloadedEnvironmentVariables,
         log_line_sender: spsc::Sender<LogLine>,
+        component_id: ComponentId,
     ) -> Self {
         let rng = ChaCha12Rng::from_seed(import_time_seed.rng_seed);
         Self {
@@ -271,6 +275,7 @@ impl<RT: Runtime> UdfEnvironment<RT> {
 
             shared,
             env_vars,
+            component_id,
         }
     }
 
@@ -469,7 +474,7 @@ impl<RT: Runtime> Environment for UdfEnvironment<RT> {
 
     fn get_all_table_mappings(&mut self) -> anyhow::Result<NamespacedTableMapping> {
         self.check_executing()?;
-        Ok(self.shared.get_all_table_mappings())
+        Ok(self.shared.get_all_table_mappings(self.component_id))
     }
 }
 
@@ -570,6 +575,7 @@ async fn run_request<RT: Runtime>(
         shared,
         key_broker,
         execution_context,
+        path.component,
     );
     let r: anyhow::Result<_> = try {
         // Update our shared state with the updated table mappings before reentering
@@ -776,11 +782,11 @@ impl<RT: Runtime> UdfShared<RT> {
         inner.queries.remove(&query_id).is_some()
     }
 
-    fn get_all_table_mappings(&self) -> NamespacedTableMapping {
+    fn get_all_table_mappings(&self, component_id: ComponentId) -> NamespacedTableMapping {
         let inner = self.inner.lock();
         inner
             .table_mapping
-            .namespace(TableNamespace::by_component_TODO())
+            .namespace(TableNamespace::from(component_id))
     }
 }
 
@@ -810,6 +816,9 @@ struct Isolate2SyscallProvider<'a, RT: Runtime> {
 
     key_broker: FunctionRunnerKeyBroker,
     context: ExecutionContext,
+
+    /// The component in which this UDF is executing
+    component_id: ComponentId,
 }
 
 impl<'a, RT: Runtime> Isolate2SyscallProvider<'a, RT> {
@@ -822,6 +831,7 @@ impl<'a, RT: Runtime> Isolate2SyscallProvider<'a, RT> {
         shared: UdfShared<RT>,
         key_broker: FunctionRunnerKeyBroker,
         context: ExecutionContext,
+        component_id: ComponentId,
     ) -> Self {
         Self {
             tx,
@@ -835,6 +845,7 @@ impl<'a, RT: Runtime> Isolate2SyscallProvider<'a, RT> {
             syscall_trace: SyscallTrace::new(),
             key_broker,
             context,
+            component_id,
         }
     }
 }
@@ -850,7 +861,7 @@ impl<RT: Runtime> AsyncSyscallProvider<RT> for Isolate2SyscallProvider<'_, RT> {
     }
 
     fn component(&self) -> anyhow::Result<ComponentId> {
-        Ok(ComponentId::Root)
+        Ok(self.component_id)
     }
 
     fn key_broker(&self) -> &FunctionRunnerKeyBroker {
@@ -1068,6 +1079,7 @@ pub async fn run_isolate_v2_udf<RT: Runtime>(
         shared.clone(),
         env_vars,
         log_line_sender,
+        path_and_args.path().component,
     );
 
     // The protocol is synchronous, so there should never be more than

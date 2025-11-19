@@ -174,9 +174,11 @@ pub fn validate_component_args(
         })?;
         match (arg_value, validator) {
             (Resource::Value(value), ComponentArgumentValidator::Value(validator)) => {
-                // TODO(CX-6540): Remove hack where we pass in empty mappings.
+                // TODO(CX-6540): Use proper table mappings for component argument validation.
+                // Currently using empty mappings which is safe for value validation
+                // but won't support table ID validation in arguments.
                 let table_mapping =
-                    TableMapping::new().namespace(TableNamespace::by_component_TODO());
+                    TableMapping::new().namespace(TableNamespace::root_component());
                 let virtual_system_mapping = virtual_system_mapping();
                 validator
                     .check_value(value, &table_mapping, virtual_system_mapping)

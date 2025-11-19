@@ -147,6 +147,7 @@ impl<RT: Runtime> ApplicationFunctionRunner<RT> {
 
         // NOTE: this will run in parallel with `stream_result_fut`, which is
         // running on a spawned coroutine.
+        let component_path_ = component_path.clone();
         let send_log_line = |log_line| {
             self.function_log.log_http_action_progress(
                 route.clone(),
@@ -155,6 +156,7 @@ impl<RT: Runtime> ApplicationFunctionRunner<RT> {
                 vec![log_line].into(),
                 // http actions are always run in Isolate
                 ModuleEnvironment::Isolate,
+                component_path_.clone(),
             )
         };
         let (outcome_result, mut log_lines) =

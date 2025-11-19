@@ -573,7 +573,9 @@ impl<RT: Runtime> AsyncSyscallProvider<RT> for DatabaseUdfEnvironment<RT> {
         let UdfOutcome {
             result,
             observed_identity,
-            // TODO: initialize the inner UDF's seed from the outer RNG seed
+            // TODO: Use common::components::derive_child_seed to initialize
+            // the inner UDF's seed from the outer RNG seed for deterministic
+            // child component behavior
             observed_rng: _,
             // TODO: use the same timestamp for the inner UDF as the outer
             observed_time: _,

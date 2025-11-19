@@ -2135,7 +2135,10 @@ impl<RT: Runtime> ActionCallbacks for ApplicationFunctionRunner<RT> {
                 "app_funrun_cancel_job",
                 |tx| {
                     async {
-                        VirtualSchedulerModel::new(tx, TableNamespace::by_component_TODO())
+                        // TODO: Add component parameter to cancel_job to support
+                        // canceling jobs in child components. Currently defaults to
+                        // root component for backward compatibility.
+                        VirtualSchedulerModel::new(tx, TableNamespace::root_component())
                             .cancel(virtual_id)
                             .await
                     }

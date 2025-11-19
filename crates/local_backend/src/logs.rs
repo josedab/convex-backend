@@ -240,7 +240,11 @@ fn execution_to_json(
                 environment,
             }
         },
-        UdfParams::Http { result, identifier } => {
+        UdfParams::Http {
+            result,
+            identifier,
+            component_path,
+        } => {
             let identifier: String = identifier.to_string();
             let (success, error) = match result {
                 Ok(v) => (Some(JsonValue::from(v)), None),
@@ -248,7 +252,11 @@ fn execution_to_json(
             };
             FunctionExecutionJson::Completion {
                 udf_type: execution.udf_type.into(),
-                component_path: None,
+                component_path: if component_path.is_root() {
+                    None
+                } else {
+                    Some(String::from(component_path))
+                },
                 identifier,
                 log_lines: execution
                     .log_lines
