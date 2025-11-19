@@ -10353,6 +10353,7 @@ dependencies = [
  "async-trait",
  "cmd_util",
  "common",
+ "dashmap",
  "events",
  "headers",
  "metrics",
@@ -10360,6 +10361,7 @@ dependencies = [
  "pb",
  "proptest",
  "proptest-derive",
+ "thread_local",
  "tracing",
  "value",
 ]

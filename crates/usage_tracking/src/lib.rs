@@ -42,7 +42,15 @@ use value::{
     sha256::Sha256Digest,
 };
 
+mod memory_efficiency;
 mod metrics;
+
+pub use memory_efficiency::{
+    AggregateCounters,
+    AtomicCounter,
+    ConcurrentUsageMap,
+    ThreadLocalCounter,
+};
 
 /// The core usage stats aggregator that is cheaply cloneable
 #[derive(Clone, Debug)]
@@ -1053,15 +1061,263 @@ pub struct AggregatedFunctionUsageStats {
     pub vector_index_write_bytes: u64,
 }
 
+/// An optimized usage tracker using lock-free concurrent data structures.
+///
+/// This implementation reduces lock contention by using `DashMap` for concurrent
+/// access to per-table counters. It's designed as an alternative to
+/// `FunctionUsageTracker` for scenarios with high concurrency.
+///
+/// # Performance Characteristics
+///
+/// - **Reads**: Lock-free, O(1)
+/// - **Writes**: Fine-grained locking per key, O(1) average
+/// - **Aggregation**: O(n) where n is the number of unique keys
+///
+/// # Example
+///
+/// ```ignore
+/// let tracker = OptimizedFunctionUsageTracker::new();
+///
+/// // Track database operations (lock-free)
+/// tracker.track_database_ingress(component_path, table_name, 1024);
+/// tracker.track_database_egress(component_path, table_name, 512);
+///
+/// // Get aggregated stats
+/// let stats = tracker.into_stats();
+/// ```
+#[derive(Debug, Clone)]
+pub struct OptimizedFunctionUsageTracker {
+    /// Storage API call counts by (component, api)
+    storage_calls: ConcurrentUsageMap<(ComponentPath, StorageAPI), u64>,
+    /// Storage ingress bytes by component
+    storage_ingress_size: ConcurrentUsageMap<ComponentPath, u64>,
+    /// Storage egress bytes by component
+    storage_egress_size: ConcurrentUsageMap<ComponentPath, u64>,
+    /// Database ingress bytes by (component, table)
+    database_ingress_size: ConcurrentUsageMap<(ComponentPath, TableName), u64>,
+    /// Database egress bytes by (component, table)
+    database_egress_size: ConcurrentUsageMap<(ComponentPath, TableName), u64>,
+    /// Database egress row counts by (component, table)
+    database_egress_rows: ConcurrentUsageMap<(ComponentPath, TableName), u64>,
+    /// Vector index ingress bytes by (component, table)
+    vector_ingress_size: ConcurrentUsageMap<(ComponentPath, TableName), u64>,
+    /// Vector index egress bytes by (component, table)
+    vector_egress_size: ConcurrentUsageMap<(ComponentPath, TableName), u64>,
+}
+
+impl Default for OptimizedFunctionUsageTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl OptimizedFunctionUsageTracker {
+    /// Creates a new optimized usage tracker.
+    pub fn new() -> Self {
+        Self {
+            storage_calls: ConcurrentUsageMap::new(),
+            storage_ingress_size: ConcurrentUsageMap::new(),
+            storage_egress_size: ConcurrentUsageMap::new(),
+            database_ingress_size: ConcurrentUsageMap::new(),
+            database_egress_size: ConcurrentUsageMap::new(),
+            database_egress_rows: ConcurrentUsageMap::new(),
+            vector_ingress_size: ConcurrentUsageMap::new(),
+            vector_egress_size: ConcurrentUsageMap::new(),
+        }
+    }
+
+    /// Converts the tracker into a `FunctionUsageStats` for serialization.
+    pub fn into_stats(self) -> FunctionUsageStats {
+        FunctionUsageStats {
+            storage_calls: WithHeapSize::from(self.storage_calls.to_btree_map()),
+            storage_ingress_size: WithHeapSize::from(self.storage_ingress_size.to_btree_map()),
+            storage_egress_size: WithHeapSize::from(self.storage_egress_size.to_btree_map()),
+            database_ingress_size: WithHeapSize::from(self.database_ingress_size.to_btree_map()),
+            database_egress_size: WithHeapSize::from(self.database_egress_size.to_btree_map()),
+            database_egress_rows: WithHeapSize::from(self.database_egress_rows.to_btree_map()),
+            vector_ingress_size: WithHeapSize::from(self.vector_ingress_size.to_btree_map()),
+            vector_egress_size: WithHeapSize::from(self.vector_egress_size.to_btree_map()),
+        }
+    }
+
+    /// Gets a snapshot of the current stats without consuming the tracker.
+    pub fn gather_stats(&self) -> FunctionUsageStats {
+        FunctionUsageStats {
+            storage_calls: WithHeapSize::from(self.storage_calls.to_btree_map()),
+            storage_ingress_size: WithHeapSize::from(self.storage_ingress_size.to_btree_map()),
+            storage_egress_size: WithHeapSize::from(self.storage_egress_size.to_btree_map()),
+            database_ingress_size: WithHeapSize::from(self.database_ingress_size.to_btree_map()),
+            database_egress_size: WithHeapSize::from(self.database_egress_size.to_btree_map()),
+            database_egress_rows: WithHeapSize::from(self.database_egress_rows.to_btree_map()),
+            vector_ingress_size: WithHeapSize::from(self.vector_ingress_size.to_btree_map()),
+            vector_egress_size: WithHeapSize::from(self.vector_egress_size.to_btree_map()),
+        }
+    }
+
+    /// Merges stats from another source into this tracker.
+    pub fn merge(&self, stats: FunctionUsageStats) {
+        for (key, count) in stats.storage_calls.into_iter() {
+            self.storage_calls.increment(key, count);
+        }
+        for (key, size) in stats.storage_ingress_size.into_iter() {
+            self.storage_ingress_size.increment(key, size);
+        }
+        for (key, size) in stats.storage_egress_size.into_iter() {
+            self.storage_egress_size.increment(key, size);
+        }
+        for (key, size) in stats.database_ingress_size.into_iter() {
+            self.database_ingress_size.increment(key, size);
+        }
+        for (key, size) in stats.database_egress_size.into_iter() {
+            self.database_egress_size.increment(key, size);
+        }
+        for (key, rows) in stats.database_egress_rows.into_iter() {
+            self.database_egress_rows.increment(key, rows);
+        }
+        for (key, size) in stats.vector_ingress_size.into_iter() {
+            self.vector_ingress_size.increment(key, size);
+        }
+        for (key, size) in stats.vector_egress_size.into_iter() {
+            self.vector_egress_size.increment(key, size);
+        }
+    }
+
+    /// Track a storage API call.
+    #[inline]
+    pub fn track_storage_call(&self, component_path: ComponentPath, api: String) {
+        metrics::storage::log_storage_call();
+        self.storage_calls.increment((component_path, api), 1);
+    }
+
+    /// Track storage ingress bytes.
+    #[inline]
+    pub fn track_storage_ingress(&self, component_path: ComponentPath, size: u64) {
+        metrics::storage::log_storage_ingress_size(size);
+        self.storage_ingress_size.increment(component_path, size);
+    }
+
+    /// Track storage egress bytes.
+    #[inline]
+    pub fn track_storage_egress(&self, component_path: ComponentPath, size: u64) {
+        metrics::storage::log_storage_egress_size(size);
+        self.storage_egress_size.increment(component_path, size);
+    }
+
+    /// Track database ingress (write) bytes.
+    ///
+    /// This method is optimized for high-frequency calls with minimal overhead.
+    #[inline]
+    pub fn track_database_ingress(
+        &self,
+        component_path: ComponentPath,
+        table_name: String,
+        size: u64,
+        skip_logging: bool,
+    ) {
+        if skip_logging {
+            return;
+        }
+        self.database_ingress_size
+            .increment((component_path, table_name), size);
+    }
+
+    /// Track database egress (read) bytes.
+    #[inline]
+    pub fn track_database_egress(
+        &self,
+        component_path: ComponentPath,
+        table_name: String,
+        size: u64,
+        skip_logging: bool,
+    ) {
+        if skip_logging {
+            return;
+        }
+        self.database_egress_size
+            .increment((component_path, table_name), size);
+    }
+
+    /// Track database egress row count.
+    #[inline]
+    pub fn track_database_egress_rows(
+        &self,
+        component_path: ComponentPath,
+        table_name: String,
+        rows: u64,
+        skip_logging: bool,
+    ) {
+        if skip_logging {
+            return;
+        }
+        self.database_egress_rows
+            .increment((component_path, table_name), rows);
+    }
+
+    /// Track vector index ingress bytes.
+    ///
+    /// Note: This also counts against database ingress as vector storage
+    /// is a surcharge on top of regular database bandwidth.
+    #[inline]
+    pub fn track_vector_ingress(
+        &self,
+        component_path: ComponentPath,
+        table_name: String,
+        size: u64,
+        skip_logging: bool,
+    ) {
+        if skip_logging {
+            return;
+        }
+        let key = (component_path, table_name);
+        self.database_ingress_size.increment(key.clone(), size);
+        self.vector_ingress_size.increment(key, size);
+    }
+
+    /// Track vector index egress bytes.
+    ///
+    /// Note: This also counts against database egress as vector storage
+    /// is a surcharge on top of regular database bandwidth.
+    #[inline]
+    pub fn track_vector_egress(
+        &self,
+        component_path: ComponentPath,
+        table_name: String,
+        size: u64,
+        skip_logging: bool,
+    ) {
+        if skip_logging {
+            return;
+        }
+        let key = (component_path, table_name);
+        self.database_egress_size.increment(key.clone(), size);
+        self.vector_egress_size.increment(key, size);
+    }
+
+    /// Get aggregated statistics for the tracker.
+    pub fn aggregate(&self) -> AggregatedFunctionUsageStats {
+        AggregatedFunctionUsageStats {
+            database_read_bytes: self.database_egress_size.sum(),
+            database_write_bytes: self.database_ingress_size.sum(),
+            database_read_documents: self.database_egress_rows.sum(),
+            storage_read_bytes: self.storage_egress_size.sum(),
+            storage_write_bytes: self.storage_ingress_size.sum(),
+            vector_index_read_bytes: self.vector_egress_size.sum(),
+            vector_index_write_bytes: self.vector_ingress_size.sum(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use cmd_util::env::env_config;
+    use common::components::ComponentPath;
     use proptest::prelude::*;
     use value::testing::assert_roundtrips;
 
     use super::{
         FunctionUsageStats,
         FunctionUsageStatsProto,
+        OptimizedFunctionUsageTracker,
     };
 
     proptest! {
@@ -1073,5 +1329,118 @@ mod tests {
         fn test_usage_stats_roundtrips(stats in any::<FunctionUsageStats>()) {
             assert_roundtrips::<FunctionUsageStats, FunctionUsageStatsProto>(stats);
         }
+    }
+
+    #[test]
+    fn test_optimized_tracker_basic() {
+        let tracker = OptimizedFunctionUsageTracker::new();
+        let component = ComponentPath::root();
+
+        // Track some database operations
+        tracker.track_database_ingress(component.clone(), "users".to_string(), 1024, false);
+        tracker.track_database_egress(component.clone(), "users".to_string(), 512, false);
+        tracker.track_database_egress_rows(component.clone(), "users".to_string(), 10, false);
+
+        // Verify aggregates
+        let stats = tracker.aggregate();
+        assert_eq!(stats.database_write_bytes, 1024);
+        assert_eq!(stats.database_read_bytes, 512);
+        assert_eq!(stats.database_read_documents, 10);
+    }
+
+    #[test]
+    fn test_optimized_tracker_skip_logging() {
+        let tracker = OptimizedFunctionUsageTracker::new();
+        let component = ComponentPath::root();
+
+        // Track with skip_logging = true
+        tracker.track_database_ingress(component.clone(), "users".to_string(), 1024, true);
+        tracker.track_database_egress(component.clone(), "users".to_string(), 512, true);
+
+        // Should be zero because skip_logging was true
+        let stats = tracker.aggregate();
+        assert_eq!(stats.database_write_bytes, 0);
+        assert_eq!(stats.database_read_bytes, 0);
+    }
+
+    #[test]
+    fn test_optimized_tracker_multiple_tables() {
+        let tracker = OptimizedFunctionUsageTracker::new();
+        let component = ComponentPath::root();
+
+        // Track operations on multiple tables
+        tracker.track_database_ingress(component.clone(), "users".to_string(), 100, false);
+        tracker.track_database_ingress(component.clone(), "posts".to_string(), 200, false);
+        tracker.track_database_ingress(component.clone(), "users".to_string(), 50, false);
+
+        // Convert to stats and verify
+        let stats = tracker.gather_stats();
+        assert_eq!(
+            *stats.database_ingress_size.get(&(component.clone(), "users".to_string())).unwrap(),
+            150
+        );
+        assert_eq!(
+            *stats.database_ingress_size.get(&(component.clone(), "posts".to_string())).unwrap(),
+            200
+        );
+    }
+
+    #[test]
+    fn test_optimized_tracker_vector_double_counting() {
+        let tracker = OptimizedFunctionUsageTracker::new();
+        let component = ComponentPath::root();
+
+        // Vector ingress should count against both database and vector
+        tracker.track_vector_ingress(component.clone(), "embeddings".to_string(), 1000, false);
+
+        let stats = tracker.aggregate();
+        assert_eq!(stats.database_write_bytes, 1000);
+        assert_eq!(stats.vector_index_write_bytes, 1000);
+    }
+
+    #[test]
+    fn test_optimized_tracker_merge() {
+        let tracker = OptimizedFunctionUsageTracker::new();
+        let component = ComponentPath::root();
+
+        // Create some stats to merge
+        let mut stats = FunctionUsageStats::default();
+        stats.database_ingress_size.insert((component.clone(), "users".to_string()), 500);
+
+        // Track directly and merge
+        tracker.track_database_ingress(component.clone(), "users".to_string(), 100, false);
+        tracker.merge(stats);
+
+        // Should have combined total
+        let final_stats = tracker.aggregate();
+        assert_eq!(final_stats.database_write_bytes, 600);
+    }
+
+    #[test]
+    fn test_optimized_tracker_clone() {
+        let tracker = OptimizedFunctionUsageTracker::new();
+        let component = ComponentPath::root();
+
+        tracker.track_database_ingress(component.clone(), "users".to_string(), 1000, false);
+
+        // Clone should have the same data
+        let cloned = tracker.clone();
+        let original_stats = tracker.aggregate();
+        let cloned_stats = cloned.aggregate();
+
+        assert_eq!(original_stats.database_write_bytes, cloned_stats.database_write_bytes);
+    }
+
+    #[test]
+    fn test_optimized_tracker_into_stats() {
+        let tracker = OptimizedFunctionUsageTracker::new();
+        let component = ComponentPath::root();
+
+        tracker.track_database_ingress(component.clone(), "users".to_string(), 100, false);
+        tracker.track_storage_call(component.clone(), "get_url".to_string());
+
+        let stats = tracker.into_stats();
+        assert_eq!(stats.database_ingress_size.len(), 1);
+        assert_eq!(stats.storage_calls.len(), 1);
     }
 }

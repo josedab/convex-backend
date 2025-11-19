@@ -25,6 +25,7 @@ testing = [
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 common = { workspace = true }
+dashmap = { workspace = true }
 events = { workspace = true }
 headers = { workspace = true }
 metrics = { workspace = true }
@@ -32,6 +33,7 @@ parking_lot = { workspace = true, features = ["hardware-lock-elision"] }
 pb = { workspace = true }
 proptest = { workspace = true, optional = true }
 proptest-derive = { workspace = true, optional = true }
+thread_local = { workspace = true }
 tracing = { workspace = true }
 value = { workspace = true }
 

@@ -111,6 +111,7 @@ ctrlc = "3.4"
 data-url = "0.3.1"
 deno_core = "0.366.0"
 deno_core_icudata = "0.74.0"
+dashmap = "6"
 derive_more = { version = "2", features = [ "full" ] }
 divan = "0.1.14"
 dotenvy = "0.15.7"
@@ -221,6 +222,7 @@ tantivy-common = { git = "https://github.com/get-convex/tantivy", rev = "c745b09
 tempfile = "3"
 textplots = "0.8"
 thiserror = "2"
+thread_local = "1.1"
 thousands = "0.2.0"
 tikv-jemalloc-sys = { version = "0.6", features = [ "profiling", "unprefixed_malloc_on_supported_platforms" ] }
 tikv-jemallocator = { version = "0.6", features = [ "profiling", "unprefixed_malloc_on_supported_platforms" ] }
