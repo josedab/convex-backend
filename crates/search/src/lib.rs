@@ -11,6 +11,7 @@ mod archive;
 mod constants;
 mod convex_query;
 pub mod disk_index;
+pub mod filter_pushdown;
 pub mod fragmented_segment;
 mod incremental_index;
 mod intersection;
@@ -64,6 +65,18 @@ pub use constants::{
     MAX_FILTER_CONDITIONS,
     MAX_QUERY_TERMS,
     SINGLE_TYPO_SEARCH_MAX_WORD_LENGTH,
+};
+pub use filter_pushdown::{
+    CombinedQuery,
+    CombinedScore,
+    FilterPredicate,
+    IndexPredicate,
+    IndexSupport,
+    PushdownConfig,
+    PushdownFilter,
+    PushdownStats,
+    QueryExecutionPlan,
+    ScoreWeights,
 };
 use convex_query::OrTerm;
 use errors::ErrorMetadata;

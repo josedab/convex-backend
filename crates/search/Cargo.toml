@@ -88,5 +88,9 @@ vector = { workspace = true, features = ["testing"] }
 name = "memory_index"
 harness = false
 
+[[bench]]
+name = "filter_pushdown"
+harness = false
+
 [lints]
 workspace = true

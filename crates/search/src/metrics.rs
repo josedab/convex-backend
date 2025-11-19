@@ -204,6 +204,47 @@ pub fn log_search_token_limit_exceeded() {
     log_counter(&SEARCH_EXCEEDED_TOKEN_LIMIT_TOTAL, 1)
 }
 
+// Filter pushdown metrics
+register_convex_counter!(
+    SEARCH_FILTER_PUSHDOWN_TOTAL,
+    "Total number of filters analyzed for pushdown"
+);
+register_convex_counter!(
+    SEARCH_FILTER_PUSHDOWN_ELIGIBLE_TOTAL,
+    "Number of filters eligible for pushdown"
+);
+register_convex_counter!(
+    SEARCH_FILTER_PUSHDOWN_USED_TOTAL,
+    "Number of times filter pushdown was actually used"
+);
+register_convex_histogram!(
+    SEARCH_FILTER_PUSHDOWN_EFFECTIVENESS,
+    "Effectiveness ratio of filter pushdown (pushed/total)"
+);
+register_convex_counter!(
+    SEARCH_DOCS_ELIMINATED_BY_PUSHDOWN_TOTAL,
+    "Number of documents eliminated by pushdown before loading"
+);
+
+pub fn log_filter_pushdown_analysis(total: usize, eligible: usize) {
+    log_counter(&SEARCH_FILTER_PUSHDOWN_TOTAL, total as u64);
+    log_counter(&SEARCH_FILTER_PUSHDOWN_ELIGIBLE_TOTAL, eligible as u64);
+    if total > 0 {
+        log_distribution(
+            &SEARCH_FILTER_PUSHDOWN_EFFECTIVENESS,
+            eligible as f64 / total as f64,
+        );
+    }
+}
+
+pub fn log_filter_pushdown_used() {
+    log_counter(&SEARCH_FILTER_PUSHDOWN_USED_TOTAL, 1);
+}
+
+pub fn log_docs_eliminated_by_pushdown(count: usize) {
+    log_counter(&SEARCH_DOCS_ELIMINATED_BY_PUSHDOWN_TOTAL, count as u64);
+}
+
 register_convex_histogram!(
     SEARCH_BM25_STATISTICS_DIFF_SECONDS,
     "Time to compute a BM25 diff",
