@@ -16,6 +16,7 @@ clusters = { path = "crates/clusters" }
 cmd_util = { path = "crates/cmd_util" }
 common = { path = "crates/common" }
 convex = { path = "crates/convex" }
+convex_types = { path = "crates/convex_types" }
 convex_fivetran_common = { path = "crates/fivetran_common" }
 convex_fivetran_destination = { path = "crates/fivetran_destination" }
 convex_fivetran_source = { path = "crates/fivetran_source" }

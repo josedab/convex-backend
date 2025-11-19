@@ -42,6 +42,12 @@ use value::{
     sha256::Sha256Digest,
 };
 
+// Re-export shared types from convex_types for backwards compatibility
+pub use convex_types::{
+    AggregatedFunctionUsageStats,
+    OccInfo,
+};
+
 mod metrics;
 
 /// The core usage stats aggregator that is cheaply cloneable
@@ -88,13 +94,7 @@ impl UsageCounter {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct OccInfo {
-    pub table_name: Option<String>,
-    pub document_id: Option<String>,
-    pub write_source: Option<String>,
-    pub retry_count: u64,
-}
+// OccInfo is now imported from convex_types
 
 pub enum CallType {
     Action {
@@ -803,15 +803,15 @@ pub struct FunctionUsageStats {
 
 impl FunctionUsageStats {
     pub fn aggregate(&self) -> AggregatedFunctionUsageStats {
-        AggregatedFunctionUsageStats {
-            database_read_bytes: self.database_egress_size.values().sum(),
-            database_write_bytes: self.database_ingress_size.values().sum(),
-            database_read_documents: self.database_egress_rows.values().sum(),
-            storage_read_bytes: self.storage_egress_size.values().sum(),
-            storage_write_bytes: self.storage_ingress_size.values().sum(),
-            vector_index_read_bytes: self.vector_egress_size.values().sum(),
-            vector_index_write_bytes: self.vector_ingress_size.values().sum(),
-        }
+        AggregatedFunctionUsageStats::from_basic_metrics(
+            self.database_egress_size.values().sum(),
+            self.database_ingress_size.values().sum(),
+            self.database_egress_rows.values().sum(),
+            self.storage_egress_size.values().sum(),
+            self.storage_ingress_size.values().sum(),
+            self.vector_egress_size.values().sum(),
+            self.vector_ingress_size.values().sum(),
+        )
     }
 
     fn merge(&mut self, other: Self) {
@@ -1040,18 +1040,8 @@ impl TryFrom<FunctionUsageStatsProto> for FunctionUsageStats {
     }
 }
 
-/// User-facing UDF stats, that is logged in the UDF execution log
-/// and might be used for debugging purposes.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct AggregatedFunctionUsageStats {
-    pub database_read_bytes: u64,
-    pub database_write_bytes: u64,
-    pub database_read_documents: u64,
-    pub storage_read_bytes: u64,
-    pub storage_write_bytes: u64,
-    pub vector_index_read_bytes: u64,
-    pub vector_index_write_bytes: u64,
-}
+// AggregatedFunctionUsageStats is now imported from convex_types
+// This resolves the circular dependency with the common crate.
 
 #[cfg(test)]
 mod tests {

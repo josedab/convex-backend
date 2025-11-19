@@ -1909,6 +1909,7 @@ dependencies = [
  "cmd_util",
  "compact_str",
  "convex_sync_types",
+ "convex_types",
  "crossbeam-channel",
  "csf",
  "cstr",
@@ -2215,6 +2216,15 @@ dependencies = [
  "serde_json",
  "strum",
  "uuid",
+]
+
+[[package]]
+name = "convex_types"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "proptest-derive",
+ "serde",
 ]
 
 [[package]]
@@ -10353,6 +10363,7 @@ dependencies = [
  "async-trait",
  "cmd_util",
  "common",
+ "convex_types",
  "events",
  "headers",
  "metrics",

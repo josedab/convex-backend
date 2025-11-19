@@ -15,6 +15,7 @@ doctest = false
 [features]
 tracy-tracing = ["tracy-client", "tracy-client/enable"]
 testing = [
+    "convex_types/testing",
     "errors/testing",
     "metrics/testing",
     "packed_value/testing",
@@ -30,6 +31,7 @@ testing = [
 
 [dependencies]
 anyhow = { workspace = true }
+convex_types = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }

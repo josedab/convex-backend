@@ -18,6 +18,12 @@ use serde_json::{
 use tonic::async_trait;
 use value::heap_size::HeapSize;
 
+// Re-export shared types from convex_types for backwards compatibility
+pub use convex_types::{
+    AggregatedFunctionUsageStats,
+    OccInfo,
+};
+
 use crate::{
     components::ComponentPath,
     errors::JsError,
@@ -52,31 +58,10 @@ pub struct LogEvent {
     pub event: StructuredLogEvent,
 }
 
-/// User-facing UDF stats, that is logged in the UDF execution log
-/// and might be used for debugging purposes.
-///
-/// TODO(sarah) this is nearly identical to the type in the `usage_tracking`
-/// crate, but there's a dependency cycle preventing us from using it directly.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct AggregatedFunctionUsageStats {
-    pub database_read_bytes: u64,
-    pub database_write_bytes: u64,
-    pub database_read_documents: u64,
-    pub storage_read_bytes: u64,
-    pub storage_write_bytes: u64,
-    pub vector_index_read_bytes: u64,
-    pub vector_index_write_bytes: u64,
-    pub memory_used_mb: u64,
-    pub return_bytes: Option<u64>,
-}
+// AggregatedFunctionUsageStats is now imported from convex_types
+// This resolves the circular dependency with usage_tracking crate.
 
-#[derive(Serialize, Debug, Clone)]
-pub struct OccInfo {
-    pub table_name: Option<String>,
-    pub document_id: Option<String>,
-    pub write_source: Option<String>,
-    pub retry_count: u64,
-}
+// OccInfo is now imported from convex_types
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(any(test, feature = "testing"), derive(utoipa::ToSchema))]
