@@ -1448,15 +1448,52 @@ async fn test_flushing_does_not_invalidate_subscriptions(rt: TestRuntime) -> any
         .await?
         .is_ok());
 
-    // TODO(ENG-9324): deleting the index *should* invalidate the transaction, but
-    // it currently does not.
+    // Deleting the index should invalidate the subscription token
     let mut tx = scenario.database.begin_system().await?;
     IndexModel::new(&mut tx)
         .drop_index(scenario.index_id)
         .await?;
     scenario.database.commit(tx).await?;
     let ts = *scenario.database.now_ts_for_reads();
-    // this *should* return None, but for now it doesn't.
-    assert!(scenario.database.refresh_token(token, ts).await?.is_ok());
+    // The token should now be invalidated since the index was deleted
+    assert!(scenario.database.refresh_token(token, ts).await?.is_err());
+    Ok(())
+}
+
+#[convex_macro::test_runtime]
+async fn test_deleting_index_invalidates_transaction(rt: TestRuntime) -> anyhow::Result<()> {
+    let mut scenario = Scenario::new(rt).await?;
+    scenario.insert("existing text", "a").await?;
+    scenario.backfill().await?;
+
+    // Start a transaction that performs a search
+    let mut tx_a = scenario.database.begin_system().await?;
+    let results = scenario
+        .query_in_tx(&mut tx_a, "existing", None, SearchVersion::V2)
+        .await?;
+    assert_eq!(results.len(), 1);
+
+    // Delete the index in a separate transaction
+    let mut tx_b = scenario.database.begin_system().await?;
+    IndexModel::new(&mut tx_b)
+        .drop_index(scenario.index_id)
+        .await?;
+    scenario.database.commit(tx_b).await?;
+
+    // The original transaction should fail to commit due to OCC conflict
+    // because the index it depends on was deleted
+    let result = scenario.database.commit(tx_a).await;
+    assert!(
+        result.is_err(),
+        "Transaction should have been invalidated when the index was deleted"
+    );
+
+    // Verify the error is an OCC error
+    let err = result.unwrap_err();
+    assert!(
+        err.is_occ(),
+        "Expected OCC error, got: {err}"
+    );
+
     Ok(())
 }

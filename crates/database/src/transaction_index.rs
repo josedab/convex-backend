@@ -264,20 +264,14 @@ impl TransactionIndex {
             !self.index_registry_updated,
             "Text search and index registry update not allowed in the same transaction"
         );
-        // HACK: instead of using `self.require_enabled` we access the
-        // `IndexRegistry` directly to fetch index info, which skips recording the
-        // read of `index.id()` into our `TransactionReadSet`.
-        // This avoids invalidating the transaction based on the precise value
-        // of the `TextIndexState`, as the transaction does not logically depend
-        // on it, and therefore avoids invalidation after flushing or compacting
-        // search indexes.
-        // TODO(ENG-9324): this has the side effect of failing to invalidate
-        // transactions if the search index is removed. In practice, that should
-        // only happen as part of a push that would separately invalidate user
-        // transactions anyway.
+        // Record a dependency on the index metadata. This ensures the transaction
+        // is invalidated if the index is deleted. We access the IndexRegistry
+        // directly instead of using self.require_enabled to get the index info,
+        // but we still record the read dependency via record_interval.
         let index = self
             .index_registry
             .require_enabled(&index_name, &query.printable_index_name()?)?;
+        self.record_interval(reads, Some(&index));
         let empty = vec![];
         let pending_updates = self.text_index_updates.get(&index.id).unwrap_or(&empty);
         let results = self
