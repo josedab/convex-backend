@@ -732,7 +732,18 @@ pub fn s3_bucket_name(use_case: &StorageUseCase) -> anyhow::Result<String> {
     ))
 }
 
-// Test below only works if you have AWS environment variables set
+// Integration tests for S3 Storage
+//
+// These tests require actual AWS credentials and S3 bucket access.
+// They are marked as #[ignore] to prevent them from running in standard CI.
+//
+// To run these tests locally:
+// 1. Set up AWS credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+// 2. Ensure the test bucket exists and is accessible
+// 3. Run with: cargo test --package aws_s3 -- --ignored
+//
+// For unit testing storage functionality without AWS, use LocalDirStorage
+// which provides a filesystem-based implementation of the Storage trait.
 #[cfg(test)]
 mod tests {
 
@@ -765,7 +776,7 @@ mod tests {
     async fn create_test_storage<RT: Runtime>(runtime: RT) -> S3Storage<RT> {
         S3Storage::new_with_prefix(TEST_BUCKET.to_string(), "".to_owned(), runtime)
             .await
-            .expect("Must set env variables")
+            .expect("Must set env variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY")
     }
 
     // Generate some large data that's not quite identical so that we can catch
@@ -792,6 +803,8 @@ mod tests {
         )
     }
 
+    /// Integration test: Tests parallel multipart upload to S3.
+    /// Requires AWS credentials and S3 bucket access.
     #[convex_macro::prod_rt_test]
     #[ignore]
     async fn test_parallel_upload(rt: ProdRuntime) -> anyhow::Result<()> {
@@ -826,6 +839,8 @@ mod tests {
         Ok(())
     }
 
+    /// Integration test: Tests sequential multipart upload to S3.
+    /// Requires AWS credentials and S3 bucket access.
     #[convex_macro::prod_rt_test]
     #[ignore]
     async fn test_sequential_upload(rt: ProdRuntime) -> anyhow::Result<()> {
@@ -846,6 +861,8 @@ mod tests {
         Ok(())
     }
 
+    /// Integration test: Tests aborting a multipart upload to S3.
+    /// Requires AWS credentials and S3 bucket access.
     #[convex_macro::prod_rt_test]
     #[ignore]
     async fn test_abort(rt: ProdRuntime) -> anyhow::Result<()> {
@@ -855,6 +872,8 @@ mod tests {
         Ok(())
     }
 
+    /// Integration test: Tests generating a signed URL for S3 object access.
+    /// Requires AWS credentials and S3 bucket access.
     #[convex_macro::prod_rt_test]
     #[ignore]
     async fn test_signed_url(rt: ProdRuntime) -> anyhow::Result<()> {

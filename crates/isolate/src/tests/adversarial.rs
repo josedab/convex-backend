@@ -98,9 +98,18 @@ async fn test_wasm_allocating_loop(rt: ProdRuntime) -> anyhow::Result<()> {
     Ok(())
 }
 
-// We don't allow setTimeout in queries, so it's not possible to get
-// a query to execute for a precise amount of time. This makes this
-// test flaky:
+/// Tests that a query that runs close to the timeout limit produces a warning.
+///
+/// This test is flaky because:
+/// - It uses ProdRuntime with real wall-clock time
+/// - We don't allow setTimeout in queries, so there's no way to control
+///   execution timing precisely
+/// - System load can cause the test to either complete too fast (no warning)
+///   or time out entirely
+///
+/// To fix this test:
+/// - Use TestRuntime with virtualized time control
+/// - Or mock the timing mechanism to ensure consistent behavior
 #[ignore]
 #[convex_macro::prod_rt_test]
 async fn test_almost_time_out(rt: ProdRuntime) -> anyhow::Result<()> {
@@ -765,6 +774,17 @@ async fn test_slow_syscall(rt: ProdRuntime) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Tests that excessively slow syscalls are properly detected and limited.
+///
+/// This test is flaky because:
+/// - It relies on precise timing with ProdRuntime
+/// - Syscall durations can vary significantly based on system load
+/// - The cumulative syscall duration threshold may be hit at different
+///   points depending on execution speed
+///
+/// To fix this test:
+/// - Use TestRuntime with virtualized time to control syscall timing
+/// - Mock the syscall duration tracking to be deterministic
 #[convex_macro::prod_rt_test]
 #[ignore]
 async fn test_really_slow_syscall(rt: ProdRuntime) -> anyhow::Result<()> {

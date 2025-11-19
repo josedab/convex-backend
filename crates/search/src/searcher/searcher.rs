@@ -1510,6 +1510,18 @@ mod tests {
         id_generator.user_table_id(&table_name)
     });
 
+    /// Benchmark/integration test for incremental search performance.
+    ///
+    /// This test is ignored because:
+    /// - It requires external environment variables: DATASET, QUERY, MAX_TERMS, MAX_RESULTS
+    /// - The DATASET must be a JSON Lines file containing search documents
+    /// - It's a performance benchmark rather than a unit test
+    ///
+    /// Example usage:
+    /// ```bash
+    /// DATASET=/path/to/data.jsonl QUERY="search term" MAX_TERMS=100 MAX_RESULTS=10 \
+    ///   cargo test --package search test_incremental_search -- --ignored
+    /// ```
     #[convex_macro::test_runtime]
     #[ignore]
     async fn test_incremental_search(rt: TestRuntime) -> anyhow::Result<()> {

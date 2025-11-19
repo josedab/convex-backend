@@ -628,10 +628,24 @@ async fn test_vector_search_compaction(rt: TestRuntime) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Tests concurrent searches across different versions of a vector index.
+///
 /// This test will fail flakily if we do not handle MVCC correctly on
 /// searchlight. That's reasonably likely because we're downloading caching and
 /// re-using some immutable files across different versions of indexes.
-#[ignore] // TODO(CX-5143): Re-enable this test after fixing the flake.
+///
+/// TODO(CX-5143): Re-enable this test after fixing the flake.
+///
+/// The flakiness stems from:
+/// - Race conditions in file caching/reuse across index versions
+/// - Timing-dependent behavior in concurrent delete operations
+/// - MVCC state management when multiple versions of the same segment exist
+///
+/// To fix this test:
+/// - Ensure proper isolation between index versions in the cache
+/// - Use version-specific cache keys for immutable files
+/// - Add synchronization when transitioning between index versions
+#[ignore]
 #[convex_macro::prod_rt_test]
 async fn test_concurrent_index_version_searches(rt: ProdRuntime) -> anyhow::Result<()> {
     let scenario = Arc::new(Scenario::new_with_enabled_index(rt.clone()).await?);
@@ -946,6 +960,17 @@ async fn test_recall_multi_segment(rt: TestRuntime) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Property-based test for vector search results.
+///
+/// This test is ignored because:
+/// - Property tests can be slow and resource-intensive
+/// - Random input generation can occasionally produce edge cases
+///   that expose timing-dependent behavior
+/// - The test is better suited for periodic regression testing
+///   rather than every CI run
+///
+/// To run this test:
+/// cargo test --package database proptest_vector_search_results -- --ignored
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 32 * env_config("CONVEX_PROPTEST_MULTIPLIER", 1),

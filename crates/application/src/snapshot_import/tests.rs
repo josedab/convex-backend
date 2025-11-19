@@ -236,6 +236,18 @@ a,b,c,d
     Ok(())
 }
 
+/// Tests importing a large CSV file with 10,000 rows.
+///
+/// This test is ignored in normal CI runs because:
+/// - It's too resource-intensive (CPU, memory, I/O)
+/// - It takes significant time to complete
+/// - It's a load/stress test rather than a unit test
+///
+/// The test imports 10,000 items which is "too big to write or read in a
+/// single transaction", testing the chunked import behavior.
+///
+/// To run this test locally:
+/// cargo test --package application import_huge_csv -- --ignored
 #[convex_macro::test_runtime]
 #[ignore]
 async fn import_huge_csv(rt: TestRuntime) -> anyhow::Result<()> {

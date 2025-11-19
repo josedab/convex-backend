@@ -273,7 +273,20 @@ async fn test_fetch_basic(rt: ProdRuntime) -> anyhow::Result<()> {
     Ok(())
 }
 
-// TODO(ENG-7281) fix flakes
+/// Tests fetch timing behavior with parallel requests and timeouts.
+///
+/// TODO(ENG-7281) fix flakes
+///
+/// This test is flaky because:
+/// - It races two HTTP requests with different durations (/timeout vs /echo_server)
+/// - Uses real wall-clock time with ProdRuntime
+/// - Network and system delays can cause the timing relationship to change
+/// - The 3-second timeout in /timeout may not be long enough under load
+///
+/// To fix this test:
+/// - Use TestRuntime with virtualized time
+/// - Mock the HTTP server responses to have deterministic timing
+/// - Or use time advancement to control when responses arrive
 #[ignore]
 #[convex_macro::prod_rt_test]
 async fn test_fetch_timing(rt: ProdRuntime) -> anyhow::Result<()> {

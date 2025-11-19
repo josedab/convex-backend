@@ -1,10 +1,16 @@
 //! Test helpers for types defined in this crate
 #[cfg(test)]
 mod schema;
+pub mod isolation;
 mod test_id_generator;
 mod test_persistence;
 
 use std::fmt::Display;
+
+pub use isolation::{
+    TestCounter,
+    TestIsolation,
+};
 
 pub use cmd_util::env::config_test as init_test_logging;
 use proptest::{
